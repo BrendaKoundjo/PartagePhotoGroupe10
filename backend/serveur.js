@@ -1,48 +1,41 @@
 const express = require('express');
-const AWS = require('aws-sdk');
 const multer = require('multer');
-const multerS3 = require('multer-s3');
-const sharp = require('sharp');
+const { S3Client, CreateBucketCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { DynamoDBClient, CreateTableCommand, PutItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
+const { Upload } = require('@aws-sdk/lib-storage');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
+const sharp = require('sharp');
 
 // Configuration AWS pour LocalStack
-AWS.config.update({
+const awsConfig = {
   region: 'us-east-1',
-  accessKeyId: 'test',
-  secretAccessKey: 'test',
-  s3ForcePathStyle: true,
-  endpoint: 'http://localhost:4566'
-});
+  credentials: {
+    accessKeyId: 'test',
+    secretAccessKey: 'test'
+  },
+  endpoint: 'http://localhost:4566',
+  forcePathStyle: true,
+};
 
-const s3 = new AWS.S3();
-const dynamodb = new AWS.DynamoDB.DocumentClient();
-const dynamodbStandard = new AWS.DynamoDB();
+const s3Client = new S3Client(awsConfig);
+const dynamoClient = new DynamoDBClient(awsConfig);
+const dynamodb = new DynamoDBClient(awsConfig);
 
+const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
 app.use(cors());
 app.use(express.json());
-
-// Configuration Multer pour S3
-const upload = multer({
-  storage: multerS3({
-    s3: s3,
-    bucket: 'photo-bucket',
-    acl: 'public-read',
-    metadata: (req, file, cb) => cb(null, { fieldName: file.fieldname }),
-    key: (req, file, cb) => cb(null, `original/${uuidv4()}-${file.originalname}`)
-  })
-});
 
 // Initialisation des ressources
 async function initializeResources() {
   try {
     // Création du bucket S3
     try {
-      await s3.createBucket({ Bucket: 'photo-bucket' }).promise();
-      console.log('Bucket S3 créé');
+      await s3Client.send(new CreateBucketCommand({ Bucket: 'photo-bucket' }));
+      console.log('Bucket S3 créé avec succès');
     } catch (s3Err) {
-      if (s3Err.code === 'BucketAlreadyOwnedByYou') {
+      if (s3Err.name === 'BucketAlreadyExists') {
         console.log('Bucket existe déjà');
       } else throw s3Err;
     }
@@ -50,80 +43,122 @@ async function initializeResources() {
     // Création de la table DynamoDB
     const tableParams = {
       TableName: 'Photos',
-      KeySchema: [{ AttributeName: 'photoId', KeyType: 'HASH' }],
-      AttributeDefinitions: [{ AttributeName: 'photoId', AttributeType: 'S' }],
-      ProvisionedThroughput: { ReadCapacityUnits: 5, WriteCapacityUnits: 5 }
+      AttributeDefinitions: [
+        { AttributeName: 'photoId', AttributeType: 'S' }
+      ],
+      KeySchema: [
+        { AttributeName: 'photoId', KeyType: 'HASH' }
+      ],
+      ProvisionedThroughput: {
+        ReadCapacityUnits: 5,
+        WriteCapacityUnits: 5
+      }
     };
 
     try {
-      await dynamodbStandard.createTable(tableParams).promise();
-      console.log('Table DynamoDB créée');
+      await dynamoClient.send(new CreateTableCommand(tableParams));
+      console.log('Table DynamoDB créée avec succès');
     } catch (ddbErr) {
-      if (ddbErr.code === 'ResourceInUseException') {
-        console.log('ℹ️ Table existe déjà');
+      if (ddbErr.name === 'ResourceInUseException') {
+        console.log('Table existe déjà');
       } else throw ddbErr;
     }
   } catch (err) {
-    console.error('Erreur initialisation:', err.message);
+    console.error('Erreur initialisation:', err);
   }
 }
 
 // Endpoint d'upload
 app.post('/upload', upload.single('photo'), async (req, res) => {
   try {
-    const { originalname, mimetype, size, location } = req.file;
+    if (!req.file) {
+      return res.status(400).json({ error: 'Aucun fichier uploadé' });
+    }
+
+    const { originalname, mimetype, buffer } = req.file;
     const { eventId } = req.body;
     const photoId = uuidv4();
 
-    // Génération miniature
+    // Upload original
+    const originalKey = `original/${photoId}-${originalname}`;
+    const upload = new Upload({
+      client: s3Client,
+      params: {
+        Bucket: 'photo-bucket',
+        Key: originalKey,
+        Body: buffer,
+        ContentType: mimetype,
+        ACL: 'public-read'
+      }
+    });
+    await upload.done();
+    const originalUrl = `http://localhost:4566/photo-bucket/${originalKey}`;
+
+    // Création miniature
     const thumbnailKey = `thumbnails/${photoId}-${originalname}`;
-    const thumbnailBuffer = await sharp(req.file.buffer).resize(200).toBuffer();
-    
-    await s3.putObject({
+    const thumbnailBuffer = await sharp(buffer).resize(200).toBuffer();
+    await s3Client.send(new PutObjectCommand({
       Bucket: 'photo-bucket',
       Key: thumbnailKey,
       Body: thumbnailBuffer,
       ContentType: mimetype,
       ACL: 'public-read'
-    }).promise();
-
+    }));
     const thumbnailUrl = `http://localhost:4566/photo-bucket/${thumbnailKey}`;
 
-    // Enregistrement en base
-    await dynamodb.put({
+    // Enregistrement dans DynamoDB
+    const dbParams = {
       TableName: 'Photos',
       Item: {
-        photoId,
-        eventId,
-        originalName: originalname,
-        mimeType: mimetype,
-        size,
-        originalUrl: location,
-        thumbnailUrl,
-        createdAt: new Date().toISOString()
+        photoId: { S: photoId },
+        eventId: { S: eventId },
+        originalName: { S: originalname },
+        mimeType: { S: mimetype },
+        size: { N: buffer.length.toString() },
+        originalUrl: { S: originalUrl },
+        thumbnailUrl: { S: thumbnailUrl },
+        createdAt: { S: new Date().toISOString() }
       }
-    }).promise();
+    };
+
+    await dynamodb.send(new PutItemCommand(dbParams));
 
     res.status(201).json({
       photoId,
-      originalUrl: location,
+      originalUrl,
       thumbnailUrl
     });
+
   } catch (err) {
     console.error('Erreur upload:', err);
     res.status(500).json({ error: err.message });
   }
 });
 
-// Récupération des photos
+// Récupération des photos par événement
 app.get('/photos/:eventId', async (req, res) => {
   try {
-    const result = await dynamodb.scan({
+    const params = {
       TableName: 'Photos',
       FilterExpression: 'eventId = :eventId',
-      ExpressionAttributeValues: { ':eventId': req.params.eventId }
-    }).promise();
-    res.json(result.Items || []);
+      ExpressionAttributeValues: {
+        ':eventId': { S: req.params.eventId }
+      }
+    };
+
+    const result = await dynamodb.send(new ScanCommand(params));
+    const items = result.Items.map(item => ({
+      photoId: item.photoId.S,
+      eventId: item.eventId.S,
+      originalName: item.originalName.S,
+      mimeType: item.mimeType.S,
+      size: parseInt(item.size.N),
+      originalUrl: item.originalUrl.S,
+      thumbnailUrl: item.thumbnailUrl.S,
+      createdAt: item.createdAt.S
+    }));
+
+    res.json(items);
   } catch (err) {
     console.error('Erreur récupération:', err);
     res.status(500).json({ error: err.message });
@@ -134,5 +169,5 @@ app.get('/photos/:eventId', async (req, res) => {
 const PORT = 3000;
 app.listen(PORT, async () => {
   await initializeResources();
-  console.log(`🚀 Serveur prêt sur http://localhost:${PORT}`);
+  console.log(`Serveur démarré sur http://localhost:${PORT}`);
 });
