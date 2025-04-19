@@ -1,0 +1,24 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    hostname: localstack
+    ports:
+      - "4566:4566"            # Port principal de LocalStack
+      - "4510-4559:4510-4559"  # Ports étendus pour les services AWS
+    environment:
+      - SERVICES=s3,sqs,dynamodb,lambda,apigateway  # Services AWS à activer
+      - DEBUG=1                # Mode debug (optionnel)
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - TMPDIR=/var/tmp/localstack  # Évite les problèmes avec /tmp
+      - PERSISTENCE=1          # Active la persistance (optionnel)
+      - LS_LOG=trace           # Logs détaillés (optionnel)
+    volumes:
+      - ./data/localstack:/var/lib/localstack  # Persistance des données
+      - /var/run/docker.sock:/var/run/docker.sock  # Nécessaire pour Lambda/Docker-in-Docker
+    networks:
+      - localstack_network
+
+networks:
+  localstack_network:
+    driver: bridge
