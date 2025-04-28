@@ -1,1 +1,42 @@
 /* You can add global styles to this file, and also import other style files */
+body{
+    margin: 0;
+    background-color: #1D1B28;
+}
+
+* {
+    font-family: "Poppins";
+}
+
+
+.bouton{
+    background: #E4AB02;
+    color: white;
+    border-radius: 10px;
+    padding: 10px 15px;
+    border: 1px solid #E4AB02;
+    font-size: 15px;
+    transition: 0.2s ease all;
+}
+.bouton:hover{
+    background-color: #e4ab021b;
+    color: white;
+    transition: 0.2s ease all;
+}
+
+
+.noir{
+    background-color: rgba(0, 0, 0, 0.163);
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 10;
+    display: none;
+}
+
+
+*{
+    color: white;
+}

@@ -1,0 +1,62 @@
+.entete{
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+}
+
+.nbre-total{
+    border-radius: 100px;
+    width: 20%;
+    color: white;
+    padding: 10px;
+    display: block;
+    text-align: center;
+    background-color: rgba(255, 255, 255, 0.067);
+    margin-bottom: 20px;
+    font-size: 0.8em;
+}
+
+
+.grid{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+
+
+    .img{
+        border-radius: 20px;
+        height: 200px;
+        background-color: #272531;
+        transition: 0.3s ease all;
+
+        div{
+            display: initial;
+            position: relative;
+            bottom: 0;
+            opacity: 0;
+            transition: 0.3s ease all;
+
+            button{
+                background-color: rgb(161, 27, 27);
+                border: 1px solid rgb(161, 27, 27);
+                position: relative;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                transition: 0.2s ease all;
+            }
+            button:hover{
+                background-color: rgba(161, 27, 27, 0.174);
+                transition: 0.2s ease all;
+            }
+        }
+    }
+
+    .img:hover{
+        transition: 0.3s ease all;
+        div{
+            opacity: 1;
+            transition: 0.3s ease all;
+        }
+    }
+}
