@@ -20,7 +20,10 @@
             </nav>
         </div>
 
-        <button class="bouton" (click)="uiService.open_form('.upload-image')">Ajouter une photo</button>
+      <button class="bouton" (click)="openDynamicForm()">
+        {{ currentRoute.includes('/albums') ? 'Ajouter un album' : 'Ajouter une photo' }}
+      </button>
+
     </div>
     <router-outlet />
 </div>
@@ -34,12 +37,23 @@
     <p>Vous ne pouvez ajouter qu'une seule image à la fois</p>
 
     <div class="form-contain">
-        <div class="img-contain" style="background-image: url('{{ previewUrl }}');">
-            
+      <div class="img-contain" [style.background-image]="'url(' + previewUrl + ')'">
+
         </div>
 
         <input type="file" accept="image/*" (change)="onFileSelected($event)" required><br>
 
-        <button class="bouton">Enregistrer</button>
+        <button class="bouton" (click)="upload()">Enregistrer</button>
+      <p *ngIf="uploadSuccess" class="success-message">Image envoyée avec succès !</p>
+
     </div>
 </div>
+<div class="form upload-album">
+  <h4>Créer un album</h4>
+  <p>Nom de l'album :</p>
+  <div class="form-contain">
+    <input type="text" placeholder="Nom de l'album" /><br>
+    <button class="bouton">Créer</button>
+  </div>
+</div>
+

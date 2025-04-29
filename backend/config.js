@@ -1,5 +1,4 @@
 const AWS = require('aws-sdk');
-
 AWS.config.update({
   accessKeyId: 'test',
   secretAccessKey: 'test',
@@ -15,5 +14,4 @@ AWS.config.update({
     endpoint: 'http://localhost:4566',
   },
 });
-
 module.exports = AWS;

@@ -3,6 +3,7 @@ import { PhotosComponent } from './pages/photos/photos.component';
 import { AlbumsComponent } from './pages/albums/albums.component';
 import { AppComponent } from './app.component';
 
+
 export const routes: Routes = [
     {
         path: '',
@@ -12,17 +13,18 @@ export const routes: Routes = [
     {
         path: '',
         title: 'Application',
-        component: AppComponent  
+        component: AppComponent
     },
     {
-        path: 'photos', 
+        path: 'photos',
         title: 'Photos',
         component: PhotosComponent
     },
+
     {
-        path: 'albums', 
+        path: 'albums',
         title: 'Albums',
         component: AlbumsComponent
     }
-    
+
 ];

@@ -1,26 +1,14 @@
 const express = require('express');
 const multer = require('multer');
-const { S3Client, CreateBucketCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
-const { DynamoDBClient, CreateTableCommand, PutItemCommand, ScanCommand } = require('@aws-sdk/client-dynamodb');
+const {  S3Client,CreateBucketCommand, PutObjectCommand, DeleteObjectCommand } = require('@aws-sdk/client-s3');
+const { CreateTableCommand, PutItemCommand, ScanCommand, DeleteItemCommand, GetItemCommand} = require('@aws-sdk/client-dynamodb');
 const { Upload } = require('@aws-sdk/lib-storage');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
 const sharp = require('sharp');
+const { s3Client, dynamoClient } = require('./aws-config');
 
-// Configuration AWS pour LocalStack
-const awsConfig = {
-  region: 'us-east-1',
-  credentials: {
-    accessKeyId: 'test',
-    secretAccessKey: 'test'
-  },
-  endpoint: 'http://localhost:4566',
-  forcePathStyle: true,
-};
 
-const s3Client = new S3Client(awsConfig);
-const dynamoClient = new DynamoDBClient(awsConfig);
-const dynamodb = new DynamoDBClient(awsConfig);
 
 const upload = multer({ storage: multer.memoryStorage() });
 const app = express();
@@ -35,7 +23,7 @@ async function initializeResources() {
       await s3Client.send(new CreateBucketCommand({ Bucket: 'photo-bucket' }));
       console.log('Bucket S3 créé avec succès');
     } catch (s3Err) {
-      if (s3Err.name === 'BucketAlreadyExists') {
+      if (s3Err.name === 'BucketAlreadyOwnedByYou' || s3Err.name === 'BucketAlreadyExists') {
         console.log('Bucket existe déjà');
       } else throw s3Err;
     }
@@ -75,13 +63,17 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'Aucun fichier uploadé' });
     }
 
-    const { originalname, mimetype, buffer } = req.file;
     const { eventId } = req.body;
+    if (!eventId || eventId.trim() === '') {
+      return res.status(400).json({ error: 'eventId est requis' });
+    }
+
+    const { originalname, mimetype, buffer } = req.file;
     const photoId = uuidv4();
 
     // Upload original
     const originalKey = `original/${photoId}-${originalname}`;
-    const upload = new Upload({
+    const uploader = new Upload({
       client: s3Client,
       params: {
         Bucket: 'photo-bucket',
@@ -91,7 +83,7 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
         ACL: 'public-read'
       }
     });
-    await upload.done();
+    await uploader.done();
     const originalUrl = `http://localhost:4566/photo-bucket/${originalKey}`;
 
     // Création miniature
@@ -116,12 +108,14 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
         mimeType: { S: mimetype },
         size: { N: buffer.length.toString() },
         originalUrl: { S: originalUrl },
+        originalKey: { S: originalKey },
         thumbnailUrl: { S: thumbnailUrl },
+        thumbnailKey: { S: thumbnailKey },
         createdAt: { S: new Date().toISOString() }
       }
     };
 
-    await dynamodb.send(new PutItemCommand(dbParams));
+    await dynamoClient.send(new PutItemCommand(dbParams));
 
     res.status(201).json({
       photoId,
@@ -138,16 +132,22 @@ app.post('/upload', upload.single('photo'), async (req, res) => {
 // Récupération des photos par événement
 app.get('/photos/:eventId', async (req, res) => {
   try {
+    const { eventId } = req.params;
+
+    if (!eventId || eventId.trim() === '') {
+      return res.status(400).json({ error: 'eventId est requis' });
+    }
+
     const params = {
       TableName: 'Photos',
       FilterExpression: 'eventId = :eventId',
       ExpressionAttributeValues: {
-        ':eventId': { S: req.params.eventId }
+        ':eventId': { S: eventId }
       }
     };
 
-    const result = await dynamodb.send(new ScanCommand(params));
-    const items = result.Items.map(item => ({
+    const result = await dynamoClient.send(new ScanCommand(params));
+    const items = (result.Items || []).map(item => ({
       photoId: item.photoId.S,
       eventId: item.eventId.S,
       originalName: item.originalName.S,
@@ -161,6 +161,52 @@ app.get('/photos/:eventId', async (req, res) => {
     res.json(items);
   } catch (err) {
     console.error('Erreur récupération:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Suppression d'une photo
+app.delete('/photos/:photoId', async (req, res) => {
+  try {
+    const { photoId } = req.params;
+
+    if (!photoId) {
+      return res.status(400).json({ error: 'photoId est requis' });
+    }
+
+    // Récupérer la photo
+    const params = {
+      TableName: 'Photos',
+      FilterExpression: 'photoId = :photoId',
+      ExpressionAttributeValues: {
+        ':photoId': { S: photoId }
+      }
+    };
+    const result = await dynamoClient.send(new GetItemCommand({
+      TableName: 'Photos',
+      Key: { photoId: { S: photoId } }
+    }));
+    const item = result.Item;
+
+    if (!item) {
+      return res.status(404).json({ error: 'Photo non trouvée' });
+    }
+
+    // Supprimer original et miniature du bucket
+    await s3Client.send(new DeleteObjectCommand({ Bucket: 'photo-bucket', Key: item.originalKey.S }));
+
+    // Supprimer de DynamoDB
+    await dynamoClient.send(new DeleteItemCommand({
+      TableName: 'Photos',
+      Key: {
+        photoId: { S: photoId }
+      }
+    }));
+
+    res.json({ message: 'Photo supprimée avec succès' });
+
+  } catch (err) {
+    console.error('Erreur suppression:', err);
     res.status(500).json({ error: err.message });
   }
 });

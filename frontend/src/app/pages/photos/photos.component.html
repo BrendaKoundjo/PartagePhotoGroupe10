@@ -1,42 +1,16 @@
 <div class="entete">
-    <h3>Photos</h3>
-    <span class="nbre-total">
-        05 photos en tout
+  <h3>Photos</h3>
+  <span class="nbre-total">
+        {{ photos.length }} photo{{ photos.length > 1 ? 's' : '' }} en tout
     </span>
 </div>
 
 <div class="grid">
-    <div class="img">
-        <div>
-            <button class="bouton">Supprimer</button>
-        </div>
+  <div class="img" *ngFor="let photo of photos">
+    <img [src]="photo.originalUrl" alt="miniature" />
+    <div class="overlay">
+      <p>{{ photo.originalName }}</p>
+      <button class="bouton" (click)="deletePhoto(photo.photoId)">Supprimer</button>
     </div>
-    <div class="img">
-        <div>
-            <button class="bouton">Supprimer</button>
-        </div>
-    </div>
-    <div class="img">
-        <div>
-            <button class="bouton">Supprimer</button>
-        </div>
-    </div>
-    <div class="img">
-        <div>
-            <button class="bouton">Supprimer</button>
-        </div>
-    </div>
-    <div class="img">
-        <div>
-            <button class="bouton">Supprimer</button>
-        </div>
-    </div>
-    <div class="img">
-        <div>
-            <button class="bouton">Supprimer</button>
-        </div>
-    </div>
-
-
-
+  </div>
 </div>
